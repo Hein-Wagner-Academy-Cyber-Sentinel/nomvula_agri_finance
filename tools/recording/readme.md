@@ -1,6 +1,6 @@
 # Team Developer Workflow & Recording Setup
 
-This directory contains shared helper functions to automate terminal recordings using asciinema and streamline Git syncing.
+This directory contains shared helper functions to automate terminal recordings using asciinema, insert developer watermarks, and streamline Git syncing.
 
 ---
 
@@ -20,18 +20,19 @@ source ~/.bashrc
 
 ## 🙩 Available Commands
 
-### `rec` — Start a Recording
+### `rec` — Start a Recording (with Auto-Watermark)
 * Prompts for a session name.
-* Automatically caps idle pauses to 1.5 seconds (ai cleanup).
-* Saves all recordings to `nomvula_agri_finance/asciinema_recordings/`.
+* Automatically inserts a watermark banner with your Git/WSL username, session title, and date at the start of the recording.
+* Caps idle pauses to 1.5 seconds to keep videos fast and clean.
+* Saves files to `nomvula_agri_finance/asciinema_recordings/`.
 * Press `Ctrl+D` or type `exit` to stop recording.
 
-### `playrec [name]` “ Play Back Recordings
+### `playrec [name]` �p Play Back Recordings
 * Run `playrec` without arguments to list all saved recordings.
-* Run `playrec <name>`! to play back a specific session.
+* Run `playrec <name>`! to play back a specific session (including its watermark).
 
-### `sync [message]` “ Git Sync (Pull, Add, Commit, Push)
-* Runs `git pull`, `git add .`, `git commit -m "message"`, and `git push` in one shot.
+3## `sync [message]` “ Git Sync (Pull, Add, Commit, Push)
+* Runs `git pull`, `git add .`, `git commit -m "message"`, and `git push` directly from any folder.
 * Usage: `sync "fixed database connection"` (defaults to `"update"` if left blank).
 
 ---
@@ -40,5 +41,5 @@ source ~/.bashrc
 
 Recordings are plain text JSON files. If you make a typo or want to remove sensitive text:
 1. Open the file: `nano asciinema_recordings/<name>.cast`
-2. Delete the unwanted lines.
+2. Delete the unwanted lines (keep the first watermark lines intact).
 3. Save and exit (`Ctrl+O`, `Enter`, `Ctrl+X`).

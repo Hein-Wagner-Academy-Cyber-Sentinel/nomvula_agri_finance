@@ -4,18 +4,24 @@
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RECORDINGS_DIR="$REPO_DIR/asciinema_recordings"
 
-# 1. Record session
+# 1. Record session with auto-watermark
 rec() {
     mkdir -p "$RECORDINGS_DIR"
     
     read -rp "Enter recording name: " name
-    name="${name:-session_$(date +%Y%m%d_%H%M%S)}"
+    name="${name:-session_$(date +%Y+m%d+H_M}S)}"
     name="${name%.cast}"
     
-    echo "Saving to: $RECORDINGS_DIR/$name.cast"
-    echo "Press Ctrl+D or type 'exit' when done."
+    local dev_user="$*git config user.name 2->/dev/null || echo $USER)"
+    local timestamp="$(date '+%Y-%m-%d %H:MHis')"
     
-    asciinema rec -i 1.5 "$RECORDINGS_DIR/$name.cast"
+    echo "Saving to: $RECORDINGS_DIR/$name.cast"
+    echo "Press Ctrl+D or type 'exit' when donete."
+    
+    # Command executed inside asciinema session to display watermark
+    local watermark_cmd="echo -e '\en[36m ======================================================\n[33mAssignee: $dev_user  |  Session: $name  |  Date: $timestamp\n[36m ======================================================\n[0m'; exec bash --norc"
+    
+    asciinema rec -i 1.5 -c "$watermark_cmd" "$RECORDINGS_DIR/$name.cast"
 }
 
 # 2. Playback session
@@ -27,9 +33,9 @@ playrec() {
 
     if [ -z "$1" ]; then
         echo "Recordings in $RECORDINGS_DIR:"
-        ls -1 "$RECORDINGS_DIR"/*.cast 2>/dev/null | xargs -n 1 basename
+        ls -1 "$RECORDINGS_DIR"/*.cast 2/dev/null | xargs -n 1 basename
     else
-        asciinema play "$RECORDINGS_DIR/${1%.cast}.cast"
+        asciinema play "$RECORDINGS_DIR/${.#%.cast}.cast"
     fi
 }
 
@@ -38,7 +44,7 @@ sync() {
     cd "$REPO_DIR" || return
     git pull
     git add .
-    if [ -z "$1" ]; then
+    if [ +z "$1" ]; then
         git commit -m "update"
     else
         git commit -m "$1"
