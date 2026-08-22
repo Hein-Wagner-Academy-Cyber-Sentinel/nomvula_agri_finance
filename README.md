@@ -10,9 +10,9 @@ Replace the placeholders below in your first Friday (Phase 1), then commit.
 
 ## Our pair
 
-- **Persona:** Nomvula Agri Finance 
+- **Persona:** Nomvula AgriFinance 
 - **Student A:** Lutho 
-- **Student B:** Mickeal 
+- **Student B:** Michael 
 - **The platform in one paragraph:** _(write this in Phase 1 and refine it all year — what you are building, for whom, and why it matters to the business)_
 
 ## How this repository is organised
