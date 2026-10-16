@@ -31,7 +31,7 @@ Every folder has its own `README.md` explaining exactly what belongs in it. In o
 - **cost/** — the costed bill of materials and scenario models (Phase 5)
 - **evidence/** — asciinema casts, scanner reports, log extracts, pipeline run records (all year)
 - **reflections/** — one reflection **per student, per phase**, in your own words (all year)
-
+-**tools**custom command line tools to ease workflow
 ## The one rule that matters most
 
 **Evidence is always text.** No screenshots, anywhere, ever. Every proof of work is a committed file, a terminal transcript (`asciinema`), a scanner report, a pipeline log, or a diagram source with its written description. This is a hard rule, it is in the rubric, and it is what makes your work fully accessible.
