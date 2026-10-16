@@ -1,17 +1,15 @@
 # Phase 1 reflection — Lutho Mathontsi
 
-_What did I do? What did I find hard? What would I do differently? What do I understand now that I did not before?_
-
 Program: Cyber sentinel Cohort 3 (Year 2)
 Team & Persona: Pair 5 - Nomvula AgriFinance
 Phase Window: From 21 August 2026
 
 1. What I did during phase 1, my primary focus was establishing the business context, regulatory framing, and threat analysis for our assigned person, Nomvula AgriFinance:
 
-* Analyzed the operational realities of Nomvula AgriFinance as an agricultural micro-finance cooperative and authored the POPIA Exposure Assessment (`charter/popia_exposure.md`), mapping rural data collection directly to POPIA Condition 7 (Security Safeguards) and Condition 4 (Information Quality).
+* Analyzed the operational realities of Nomvula AgriFinance as an agricultural micro-finance cooperative and authored the POPIA Exposure Assessment (`charter/popia_exposure.md`), mapping rural data collection directly to POPIA Condition 7 (Security Safeguards) and Condition 5 (Information Quality).
 * Collaborated on structuring the project charter and defining explicit in-scope and out-of-scope boundaries to ensure zero standing cloud spend.
 * Developed Threat Model Version 0 (`threat-model/threat-model-v0.md`), grounding our assets, actors, and entry points in Nomvula’s dominant risk theme: connectivity constraints, remote depot desks, and offline loan batch synchronization.
-* Collaborated with Michael via GitHub pull requests, reviewing and merging branches through our automated CI pipeline.
+* Collaborated with Michael via GitHub and discussed changes or dublicate information in person or through email.
 
 2. What I found hard
 
@@ -26,6 +24,6 @@ Phase Window: From 21 August 2026
 
 4. What I Now Understand That I Did Not Before
 
-* Technical Controls Require Business and Legal Justification: I now understand that technical controls like disk encryption (AES-256) and TLS mutual authentication are not merely security best practices; they are direct legal requirements under POPIA Condition 7 to protect member data on vulnerable field endpoints.
+* Technical Controls Require Business and Legal Justification: I now understand that technical controls like disk encryption (AES-256) and TLS mutual authentication are not merely security best practices; POPIA Condition 7 (Section 19) legally requires appropriate, reasonable technical measures, and that you selected AES-256 and mutual TLS as the engineering controls to meet that legal duty.
 * Accessible Evidence Standards: I experienced firsthand why text-native evidence (terminal logs, committed configuration files, `.cast` recordings) provides a more verifiable, version-controlled audit trail than screenshots.
 
