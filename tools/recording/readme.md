@@ -38,12 +38,20 @@ source ~/.bashrc
 - `feat <name>` (alias: `feature <name>`): Creates and switches to a new feature branch prefixed with your username (e.g., `michael/my-feature`).
   - Helps comply with team Git rules: one task, one feature branch, one person.
 
-### 3. Interactive Git Synchronization & Merging (`sync`)
+### 3. Context-Aware Git Synchronization & Merging (`sync`)
 
-- `sync`: Interactive Git workflow manager with automatic SSH agent authentication.
-  - **Option 1 (Push to a branch)**: Prompts for a commit message, stages and commits local changes, presents a numbered sub-menu of GitHub branches, and pushes your current work directly to `origin/<target-branch>` (via `HEAD:<target-branch>`). You can push to existing remote branches or create new branches on GitHub without needing separate local branch checkouts.
-  - **Option 2 (Pull from a branch)**: Presents a numbered sub-menu of GitHub branches (e.g. `main` or a feature branch), and pulls updates directly from `origin/<selected-branch>` into your working tree. Zero auto-commit prompts or merge wizards.
-  - **Option 3 (Merge a branch into main)**: Presents a numbered sub-menu of branches on GitHub (excluding `main`), pulls latest `origin/main`, merges the selected remote branch, pushes the updated `main` to GitHub, and returns to your working branch.
+- `sync`: Context-aware Git workflow manager with automatic SSH agent authentication.
+  - **When on a Feature Branch (`michael/<task>`):**
+    - **1) Save and Push**: Prompts for a commit message, stages and commits local changes, and pushes directly to `origin/$current_branch` with zero extra prompts.
+    - **2) Pull Updates**: Pulls latest updates for your active branch from GitHub.
+    - **3) Update with Main**: Fetches and merges latest `origin/main` into your feature branch to prevent merge conflicts early.
+    - **4) Finish & Merge into Main**: Commits remaining changes, switches to `main`, pulls latest `origin/main`, merges your feature branch, pushes `main` to GitHub, and offers to safely delete the finished branch (locally and on GitHub).
+    - **5) Switch to Main**: Saves your work in progress and switches back to `main`.
+  - **When on `main`:**
+    - **1) Start a New Feature Branch**: Prompts for task name, creates and switches to `michael/<name>`, and pushes the new branch to GitHub.
+    - **2) Switch to an Existing Branch**: Numbered selector of branches on GitHub; switches your folder to the chosen branch.
+    - **3) Pull Latest Main**: Pulls latest updates from `origin/main`.
+    - **4) Save and Push Main**: Directly saves and pushes changes made on `main` to GitHub.
 ### 4. GitHub Issue Tracking (`issues` & `issue`)
 
 - `issues`: Lists all open GitHub issues for the repository directly in the terminal.
