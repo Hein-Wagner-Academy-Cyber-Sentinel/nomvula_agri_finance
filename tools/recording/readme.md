@@ -1,41 +1,51 @@
-# Team Developer Workflow & Recording Setup
+# Developer Workflow and Recording Tools
 
-This directory contains shared helper functions for terminal recordings, automated watermarks, and safe branch syncing.
+This directory provides helper commands for Git branching, terminal session recording, and synchronization between WSL and Windows Documents.
 
----
+## One-Time Setup
 
-## 📧 One-Time Setup Instructions
+To activate these commands in your shell, run this command from the repository root:
 
-Follow these two steps in your WSL terminal:
+```bash
+bash tools/recording/install.sh
+```
 
-### 1. Install Required Packages
-sudo apt update && sudo apt install -y asciinema git
+Then restart your terminal or run:
 
-### 2. Enable the Helper CommandsJFrom the repo root directory (`nomvula_agri_finance`), run:
-echo "source \$Tpwd)/tools/recording/helpers.sh" >> ~/.bashrc
+```bash
 source ~/.bashrc
+```
 
----
+## Available Commands
 
-## 📦 Daily Commands
+### Git Branching
+- feature <name>: Creates and switches to a new feature branch named your-username/name.
+- feat <name>: Shorter shortcut for feature.
 
-3## 1. `feature <name>` — Start a New Branch
-* Creates and switches to an isolated workspace called `<your-name>/<name>`.
-* Use this for all testing, features, and experiments.
+### Terminal Recording
+- rec: Starts an asciinema terminal recording with an automated watermark header containing your username, session name, and date. To stop recording, press Ctrl+D or type exit.
+- playrec [name]: Plays back a recording, or lists all available recordings if no name is given.
+- play [name]: Shorter shortcut for playrec.
 
-3## 2. `rec` “ Start a Recording (with Auto-Watermark)
-* Injects a header with your username, session name, and timestamp.
-* Caps idle time at 1.5s for clean playback.
-* Press `Ctrl+D` or type `exit` to stop.
+### Git Syncing
+- sync: Starts an interactive Git synchronization with automated SSH authentication.
+  - Option 1 saves your work in progress to your private branch.
+  - Option 2 merges your branch and publishes directly to the shared main branch.
 
-### 3. `playrec [name]` �p Play Back Recordings
-* Files list if no name is given. Plays back watermarked sessions.
+### Environment Activation
+- alp: Activates the Python virtual environment in ~/alp-env.
+- activate-alp: Alternative alias for alp.
 
-### 4. `sync` — Interactive Git Sync
-* Prompts you whether to save to your private branch (Option 1) or merge/publish to `shared main` (Option 2).
+### Windows and Linux Synchronization
+- move: Copies the repository from Linux WSL to Windows Documents. It uses delete mirroring so that any files deleted or moved in Git are also cleaned up from Windows, preventing ghost files.
+- update: Copies files edited on Windows back into Linux WSL without altering Linux file permissions or dirtying Git tracking.
+- move-nomvula: Alias for move.
+- update-nomvula: Alias for update.
 
----
+## Recommended Workflow
 
-## ‿ Editing Recordings
-1. Open file: `nano asciinema_recordings/<name>.cast`
-2. Remove typos and save (`Ctrl+O`, then `Ctrl+X`).
+1. Start a task branch: feat my-task
+2. Record your session: rec
+3. Sync to GitHub: sync
+4. Sync to Windows for review: move
+5. Retrieve Windows edits: update
