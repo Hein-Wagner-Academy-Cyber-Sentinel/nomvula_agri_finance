@@ -179,23 +179,57 @@ playrec() {
 }
 alias play='playrec'
 
+# Helper: Resolve branch to a valid git ref (local, remote tracking, or remote head)
+_resolve_branch_ref() {
+    local b="$1"
+    b="${b#origin/}"
+    if git rev-parse --verify --quiet "refs/heads/$b" >/dev/null 2>&1; then
+        echo "$b"
+    elif git rev-parse --verify --quiet "refs/remotes/origin/$b" >/dev/null 2>&1; then
+        echo "origin/$b"
+    elif git ls-remote --exit-code --heads origin "$b" >/dev/null 2>&1; then
+        echo "origin/$b"
+    else
+        echo ""
+    fi
+}
+
 # Helper: Interactive numbered branch selector
 _select_branch() {
     local default_branch="$1"
     local prompt_text="$2"
+    local exclude_branch="$3"
     SELECTED_BRANCH=""
 
     echo "Fetching latest remote branches..."
     git fetch origin >/dev/null 2>&1
 
-    local branches=()
+    local raw_branches=()
+    while IFS= read -r b; do
+        b="${b#\* }"
+        b="$(echo "$b" | tr -d '[:space:]')"
+        [ -n "$b" ] && raw_branches+=("$b")
+    done < <(git branch 2>/dev/null)
+
     while IFS= read -r b; do
         b="${b#origin/}"
-        [ -n "$b" ] && branches+=("$b")
-    done < <(git branch -r 2>/dev/null | grep -v "HEAD" | sed "s/^[[:space:]]*//" | sort -u)
+        b="$(echo "$b" | tr -d '[:space:]')"
+        [ -n "$b" ] && raw_branches+=("$b")
+    done < <(git branch -r 2>/dev/null | grep -v 'HEAD' | sed 's/^[[:space:]]*//')
+
+    local branches=()
+    while IFS= read -r b; do
+        [ -n "$b" ] && [ "$b" != "$exclude_branch" ] && branches+=("$b")
+    done < <(printf "%s\n" "${raw_branches[@]}" | sort -u)
+
+    if [ "${#branches[@]}" -eq 0 ]; then
+        echo "No branches found."
+        SELECTED_BRANCH="$default_branch"
+        return
+    fi
 
     echo ""
-    echo "Available remote branches:"
+    echo "Available branches:"
     for i in "${!branches[@]}"; do
         local num=$((i + 1))
         if [ "${branches[i]}" = "$default_branch" ]; then
@@ -219,7 +253,7 @@ _select_branch() {
     fi
 }
 
-# 4. Interactive Git Sync (SSH-Ready with Explicit Merge Options)
+# 4. Interactive Git Sync (SSH-Ready)
 sync() {
     cd "$REPO_DIR" || { echo "Error: Cannot enter repo $REPO_DIR"; return 1; }
     
@@ -235,63 +269,74 @@ sync() {
     echo ""
     echo -e "\033[1;32mCurrent Active Branch: $current_branch\033[0m"
     echo "Choose sync mode:"
-    echo "1) Save to MY BRANCH (commit and push work in progress)"
-    echo "2) Pull/Merge into MY BRANCH (from main or a branch of your choice)"
-    echo "3) Merge a branch into MAIN and publish (from current or a branch of your choice)"
+    echo "1) Push to a branch (save work in progress)"
+    echo "2) Pull from a branch (update with team work)"
+    echo "3) Merge a branch into main (publish finished work)"
     read -rp "Select [1/2/3] (default 1): " mode
     mode="${mode:-1}"
 
-    if [ "$mode" = "2" ]; then
-        echo "--> Staging local changes on $current_branch before merging..."
+    if [ "$mode" = "1" ]; then
+        read -rp "Enter commit message (default 'update'): " msg
+        msg="${msg:-update}"
+
         git add .
         if ! git diff --cached --quiet; then
-            read -rp "Enter commit message for local changes (default 'WIP before merge'): " wip_msg
-            wip_msg="${wip_msg:-WIP before merge}"
-            git commit -m "$wip_msg"
+            git commit -m "$msg"
+        else
+            echo "No local changes to commit."
         fi
 
-        _select_branch "main" "Select branch to merge into $current_branch"
+        _select_branch "$current_branch" "Select branch to push to"
+        local target_branch="$SELECTED_BRANCH"
+        [ -z "$target_branch" ] && target_branch="$current_branch"
+
+        echo "--> Pushing to origin/$target_branch..."
+        git push --set-upstream origin "$target_branch"
+        echo "Successfully pushed to origin/$target_branch."
+
+    elif [ "$mode" = "2" ]; then
+        local default_pull="$current_branch"
+        _select_branch "$default_pull" "Select branch to pull from"
         local source_branch="$SELECTED_BRANCH"
+        [ -z "$source_branch" ] && source_branch="$default_pull"
 
-        local branch_ref=""
-        if git show-ref --verify --quiet "refs/heads/$source_branch"; then
-            branch_ref="$source_branch"
-        elif git show-ref --verify --quiet "refs/remotes/origin/$source_branch"; then
-            branch_ref="origin/$source_branch"
+        echo "--> Pulling latest updates from origin/$source_branch into $current_branch..."
+        if git pull origin "$source_branch"; then
+            echo "Successfully pulled from origin/$source_branch."
         else
-            echo "Error: Branch '$source_branch' not found locally or on remote."
+            echo "Pull did not complete cleanly. If you have conflicting local edits, please commit or stash them first."
             return 1
         fi
 
-        echo "--> Merging $branch_ref into $current_branch..."
-        if git merge "$branch_ref" --no-edit; then
-            echo "Successfully merged $source_branch into $current_branch."
-        else
-            echo "Merge conflict detected while merging $source_branch into $current_branch!"
-            echo "Resolve conflicts with 'git status' and commit, or run 'git merge --abort'."
-            return 1
-        fi
     elif [ "$mode" = "3" ]; then
-        _select_branch "$current_branch" "Select branch to merge into main"
-        local source_branch="$SELECTED_BRANCH"
+        local default_merge="$current_branch"
+        [ "$default_merge" = "main" ] && default_merge=""
 
-        local branch_ref=""
-        if git show-ref --verify --quiet "refs/heads/$source_branch"; then
-            branch_ref="$source_branch"
-        elif git show-ref --verify --quiet "refs/remotes/origin/$source_branch"; then
-            branch_ref="origin/$source_branch"
-        else
-            echo "Error: Branch '$source_branch' not found locally or on remote."
+        _select_branch "$default_merge" "Select branch to merge into main" "main"
+        local source_branch="$SELECTED_BRANCH"
+        [ -z "$source_branch" ] && source_branch="$default_merge"
+
+        if [ -z "$source_branch" ]; then
+            echo "Error: No branch selected to merge into main."
+            return 1
+        fi
+
+        local branch_ref
+        branch_ref="$(_resolve_branch_ref "$source_branch")"
+        if [ -z "$branch_ref" ]; then
+            echo "Error: Branch '$source_branch' does not exist locally or on remote."
             return 1
         fi
 
         read -rp "Enter merge commit message (default 'Merge $source_branch into main'): " msg
         msg="${msg:-Merge $source_branch into main}"
 
-        echo "--> Staging local changes on $current_branch..."
+        # If user has uncommitted changes on their working branch, save them before switching
         git add .
         if ! git diff --cached --quiet; then
-            git commit -m "WIP before merging $source_branch into main: $msg"
+            read -rp "Enter commit message for local changes before switching (default 'WIP before merge'): " wip_msg
+            wip_msg="${wip_msg:-WIP before merge}"
+            git commit -m "$wip_msg"
         fi
 
         local original_branch="$current_branch"
@@ -307,30 +352,15 @@ sync() {
             git push origin main
             if [ "$original_branch" != "main" ]; then
                 git checkout "$original_branch"
-                echo "Successfully merged $source_branch into MAIN and returned to $original_branch."
+                echo "Successfully merged $source_branch into main and returned to $original_branch."
             else
-                echo "Successfully merged $source_branch into MAIN."
+                echo "Successfully merged $source_branch into main."
             fi
         else
             echo "Merge conflict detected while merging $source_branch into main!"
-            echo "Please resolve conflicts, or run 'git merge --abort' and return to $original_branch."
+            echo "Please resolve conflicts with 'git status', or run 'git merge --abort' and return to $original_branch."
             return 1
         fi
-    else
-        read -rp "Enter commit message (default 'update'): " msg
-        msg="${msg:-update}"
-        echo "--> Syncing privately to branch: $current_branch..."
-        if git ls-remote --exit-code --heads origin "$current_branch" >/dev/null 2>&1; then
-            git pull origin "$current_branch"
-        fi
-        git add .
-        if ! git diff --cached --quiet; then
-            git commit -m "$msg"
-        else
-            echo "No local changes to commit."
-        fi
-        git push --set-upstream origin "$current_branch"
-        echo "Successfully synced to $current_branch."
     fi
 }
 

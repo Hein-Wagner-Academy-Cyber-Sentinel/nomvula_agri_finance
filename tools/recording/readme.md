@@ -41,9 +41,9 @@ source ~/.bashrc
 ### 3. Interactive Git Synchronization & Merging (`sync`)
 
 - `sync`: Interactive Git workflow manager with automatic SSH agent authentication.
-  - **Option 1 (Save to My Branch)**: Stages, commits, and pushes your work in progress to your remote feature branch.
-  - **Option 2 (Pull/Merge into My Branch)**: Fetches remote branches, displays all available branches, and allows merging either `main` (default) or any teammate's branch of your choice into your active feature branch.
-  - **Option 3 (Merge Branch into Main & Publish)**: Fetches remote branches, displays all available branches, and allows merging your active branch (default) or any chosen branch into `main`, publishing the result to GitHub.
+  - **Option 1 (Push to a branch)**: Asks for a commit message, stages and commits local changes, presents a numbered sub-menu of branches, and pushes to `origin/<selected-branch>`.
+  - **Option 2 (Pull from a branch)**: Presents a numbered sub-menu of branches (e.g. `main` or a feature branch), and runs a clean `git pull` from GitHub into your current branch. No auto-committing or merge prompts.
+  - **Option 3 (Merge a branch into main)**: Presents a numbered sub-menu of feature branches, switches to `main`, pulls latest `origin/main`, merges the selected branch, pushes to GitHub, and returns to your working branch.
 
 ### 4. GitHub Issue Tracking (`issues` & `issue`)
 
