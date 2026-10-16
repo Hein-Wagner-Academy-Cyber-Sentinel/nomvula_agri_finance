@@ -41,10 +41,9 @@ source ~/.bashrc
 ### 3. Interactive Git Synchronization & Merging (`sync`)
 
 - `sync`: Interactive Git workflow manager with automatic SSH agent authentication.
-  - **Option 1 (Push to a branch)**: Asks for a commit message, stages and commits local changes, presents a numbered sub-menu of branches, and pushes to `origin/<selected-branch>`.
-  - **Option 2 (Pull from a branch)**: Presents a numbered sub-menu of branches (e.g. `main` or a feature branch), and runs a clean `git pull` from GitHub into your current branch. No auto-committing or merge prompts.
-  - **Option 3 (Merge a branch into main)**: Presents a numbered sub-menu of feature branches, switches to `main`, pulls latest `origin/main`, merges the selected branch, pushes to GitHub, and returns to your working branch.
-
+  - **Option 1 (Push to a branch)**: Prompts for a commit message, stages and commits local changes, presents a numbered sub-menu of GitHub branches, and pushes your current work directly to `origin/<target-branch>` (via `HEAD:<target-branch>`). You can push to existing remote branches or create new branches on GitHub without needing separate local branch checkouts.
+  - **Option 2 (Pull from a branch)**: Presents a numbered sub-menu of GitHub branches (e.g. `main` or a feature branch), and pulls updates directly from `origin/<selected-branch>` into your working tree. Zero auto-commit prompts or merge wizards.
+  - **Option 3 (Merge a branch into main)**: Presents a numbered sub-menu of branches on GitHub (excluding `main`), pulls latest `origin/main`, merges the selected remote branch, pushes the updated `main` to GitHub, and returns to your working branch.
 ### 4. GitHub Issue Tracking (`issues` & `issue`)
 
 - `issues`: Lists all open GitHub issues for the repository directly in the terminal.

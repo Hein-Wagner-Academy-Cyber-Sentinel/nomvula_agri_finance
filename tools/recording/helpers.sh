@@ -179,14 +179,14 @@ playrec() {
 }
 alias play='playrec'
 
-# Helper: Resolve branch to a valid git ref (local, remote tracking, or remote head)
+# Helper: Resolve branch to a valid git ref (origin/branch or local branch)
 _resolve_branch_ref() {
     local b="$1"
     b="${b#origin/}"
-    if git rev-parse --verify --quiet "refs/heads/$b" >/dev/null 2>&1; then
-        echo "$b"
-    elif git rev-parse --verify --quiet "refs/remotes/origin/$b" >/dev/null 2>&1; then
+    if git rev-parse --verify --quiet "refs/remotes/origin/$b" >/dev/null 2>&1; then
         echo "origin/$b"
+    elif git rev-parse --verify --quiet "refs/heads/$b" >/dev/null 2>&1; then
+        echo "$b"
     elif git ls-remote --exit-code --heads origin "$b" >/dev/null 2>&1; then
         echo "origin/$b"
     else
@@ -199,23 +199,26 @@ _select_branch() {
     local default_branch="$1"
     local prompt_text="$2"
     local exclude_branch="$3"
+    local allow_custom="$4"
     SELECTED_BRANCH=""
 
-    echo "Fetching latest remote branches..."
+    echo "Fetching latest remote branches from GitHub..."
     git fetch origin >/dev/null 2>&1
 
     local raw_branches=()
-    while IFS= read -r b; do
-        b="${b#\* }"
-        b="$(echo "$b" | tr -d '[:space:]')"
-        [ -n "$b" ] && raw_branches+=("$b")
-    done < <(git branch 2>/dev/null)
-
+    # 1. Collect remote tracking branches from origin (excluding HEAD)
     while IFS= read -r b; do
         b="${b#origin/}"
         b="$(echo "$b" | tr -d '[:space:]')"
         [ -n "$b" ] && raw_branches+=("$b")
     done < <(git branch -r 2>/dev/null | grep -v 'HEAD' | sed 's/^[[:space:]]*//')
+
+    # 2. Collect local branches if any exist
+    while IFS= read -r b; do
+        b="${b#\* }"
+        b="$(echo "$b" | tr -d '[:space:]')"
+        [ -n "$b" ] && raw_branches+=("$b")
+    done < <(git branch 2>/dev/null)
 
     local branches=()
     while IFS= read -r b; do
@@ -223,34 +226,85 @@ _select_branch() {
     done < <(printf "%s\n" "${raw_branches[@]}" | sort -u)
 
     if [ "${#branches[@]}" -eq 0 ]; then
-        echo "No branches found."
-        SELECTED_BRANCH="$default_branch"
-        return
+        if [ -n "$default_branch" ]; then
+            SELECTED_BRANCH="$default_branch"
+            return 0
+        elif [ "$allow_custom" = "true" ]; then
+            read -rp "Enter branch name: " custom_choice
+            SELECTED_BRANCH="$(echo "$custom_choice" | tr -d '[:space:]')"
+            return 0
+        else
+            echo "Error: No branches found on GitHub."
+            return 1
+        fi
     fi
 
     echo ""
-    echo "Available branches:"
+    echo "Available branches on GitHub:"
     for i in "${!branches[@]}"; do
         local num=$((i + 1))
-        if [ "${branches[i]}" = "$default_branch" ]; then
+        if [ -n "$default_branch" ] && [ "${branches[i]}" = "$default_branch" ]; then
             echo "  $num) ${branches[i]} (default)"
         else
             echo "  $num) ${branches[i]}"
         fi
     done
 
-    echo ""
-    local choice
-    read -rp "$prompt_text [1-${#branches[@]}] (default '$default_branch'): " choice
-    choice="$(echo "$choice" | tr -d '[:space:]')"
-
-    if [ -z "$choice" ]; then
-        SELECTED_BRANCH="$default_branch"
-    elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#branches[@]}" ]; then
-        SELECTED_BRANCH="${branches[choice-1]}"
+    local prompt_label="$prompt_text [1-${#branches[@]}]"
+    if [ -n "$default_branch" ]; then
+        prompt_label="$prompt_label (default '$default_branch'): "
     else
-        SELECTED_BRANCH="${choice#origin/}"
+        prompt_label="$prompt_label: "
     fi
+
+    while true; do
+        echo ""
+        local choice=""
+        read -rp "$prompt_label" choice
+        choice="$(echo "$choice" | tr -d '[:space:]')"
+
+        if [ -z "$choice" ]; then
+            if [ -n "$default_branch" ]; then
+                SELECTED_BRANCH="$default_branch"
+                break
+            else
+                echo "Please select a number between 1 and ${#branches[@]}."
+                continue
+            fi
+        fi
+
+        if [[ "$choice" =~ ^[0-9]+$ ]]; then
+            if [ "$choice" -ge 1 ] && [ "$choice" -le "${#branches[@]}" ]; then
+                SELECTED_BRANCH="${branches[choice-1]}"
+                break
+            else
+                echo "Invalid selection: $choice. Please enter a number between 1 and ${#branches[@]}."
+                continue
+            fi
+        fi
+
+        if [ "$allow_custom" = "true" ]; then
+            local clean_choice="${choice#origin/}"
+            echo "Using branch name: $clean_choice"
+            SELECTED_BRANCH="$clean_choice"
+            break
+        else
+            local clean_choice="${choice#origin/}"
+            local matched=""
+            for b in "${branches[@]}"; do
+                if [ "$b" = "$clean_choice" ]; then
+                    matched="$b"
+                    break
+                fi
+            done
+            if [ -n "$matched" ]; then
+                SELECTED_BRANCH="$matched"
+                break
+            else
+                echo "Branch '$clean_choice' not found. Please enter a number between 1 and ${#branches[@]}."
+            fi
+        fi
+    done
 }
 
 # 4. Interactive Git Sync (SSH-Ready)
@@ -258,6 +312,7 @@ sync() {
     cd "$REPO_DIR" || { echo "Error: Cannot enter repo $REPO_DIR"; return 1; }
     
     _ensure_ssh_agent
+    _organize_recordings
 
     local current_branch
     current_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
@@ -269,9 +324,9 @@ sync() {
     echo ""
     echo -e "\033[1;32mCurrent Active Branch: $current_branch\033[0m"
     echo "Choose sync mode:"
-    echo "1) Push to a branch (save work in progress)"
-    echo "2) Pull from a branch (update with team work)"
-    echo "3) Merge a branch into main (publish finished work)"
+    echo "1) Push to a branch (save work in progress to GitHub)"
+    echo "2) Pull from a branch (update with team work from GitHub)"
+    echo "3) Merge a branch into main (publish finished work to GitHub main)"
     read -rp "Select [1/2/3] (default 1): " mode
     mode="${mode:-1}"
 
@@ -286,35 +341,36 @@ sync() {
             echo "No local changes to commit."
         fi
 
-        _select_branch "$current_branch" "Select branch to push to"
+        _select_branch "$current_branch" "Select branch to push to" "" "true"
         local target_branch="$SELECTED_BRANCH"
         [ -z "$target_branch" ] && target_branch="$current_branch"
 
-        echo "--> Pushing to origin/$target_branch..."
-        git push --set-upstream origin "$target_branch"
-        echo "Successfully pushed to origin/$target_branch."
+        echo "--> Pushing local changes to GitHub branch origin/$target_branch..."
+        if git push origin "HEAD:$target_branch"; then
+            echo "Successfully pushed to origin/$target_branch."
+        else
+            echo "Error: Failed to push to origin/$target_branch."
+            echo "If the remote branch has newer commits, pull from it first (Option 2)."
+            return 1
+        fi
 
     elif [ "$mode" = "2" ]; then
-        local default_pull="$current_branch"
-        _select_branch "$default_pull" "Select branch to pull from"
+        _select_branch "$current_branch" "Select branch to pull from" "" "false"
         local source_branch="$SELECTED_BRANCH"
-        [ -z "$source_branch" ] && source_branch="$default_pull"
+        [ -z "$source_branch" ] && source_branch="$current_branch"
 
         echo "--> Pulling latest updates from origin/$source_branch into $current_branch..."
         if git pull origin "$source_branch"; then
             echo "Successfully pulled from origin/$source_branch."
         else
-            echo "Pull did not complete cleanly. If you have conflicting local edits, please commit or stash them first."
+            echo "Error: Pull did not complete cleanly."
+            echo "If you have uncommitted local changes that conflict, commit them first (Option 1) or stash them."
             return 1
         fi
 
     elif [ "$mode" = "3" ]; then
-        local default_merge="$current_branch"
-        [ "$default_merge" = "main" ] && default_merge=""
-
-        _select_branch "$default_merge" "Select branch to merge into main" "main"
+        _select_branch "" "Select branch to merge into main" "main" "false"
         local source_branch="$SELECTED_BRANCH"
-        [ -z "$source_branch" ] && source_branch="$default_merge"
 
         if [ -z "$source_branch" ]; then
             echo "Error: No branch selected to merge into main."
@@ -324,17 +380,17 @@ sync() {
         local branch_ref
         branch_ref="$(_resolve_branch_ref "$source_branch")"
         if [ -z "$branch_ref" ]; then
-            echo "Error: Branch '$source_branch' does not exist locally or on remote."
+            echo "Error: Branch '$source_branch' does not exist on GitHub."
             return 1
         fi
 
         read -rp "Enter merge commit message (default 'Merge $source_branch into main'): " msg
         msg="${msg:-Merge $source_branch into main}"
 
-        # If user has uncommitted changes on their working branch, save them before switching
+        # If user has uncommitted changes, commit them first
         git add .
         if ! git diff --cached --quiet; then
-            read -rp "Enter commit message for local changes before switching (default 'WIP before merge'): " wip_msg
+            read -rp "Enter commit message for local changes before merging (default 'WIP before merge'): " wip_msg
             wip_msg="${wip_msg:-WIP before merge}"
             git commit -m "$wip_msg"
         fi
@@ -342,23 +398,38 @@ sync() {
         local original_branch="$current_branch"
         if [ "$current_branch" != "main" ]; then
             echo "--> Switching to main..."
-            git checkout main
+            if ! git checkout main; then
+                echo "Error: Could not switch to main."
+                return 1
+            fi
         fi
-        echo "--> Pulling latest main..."
-        git pull --rebase origin main
+
+        echo "--> Pulling latest main from GitHub..."
+        if ! git pull origin main; then
+            echo "Error: Could not pull latest main."
+            [ "$original_branch" != "main" ] && git checkout "$original_branch"
+            return 1
+        fi
 
         echo "--> Merging $branch_ref into main..."
         if git merge "$branch_ref" -m "$msg"; then
-            git push origin main
-            if [ "$original_branch" != "main" ]; then
-                git checkout "$original_branch"
-                echo "Successfully merged $source_branch into main and returned to $original_branch."
+            echo "--> Pushing merged main to GitHub..."
+            if git push origin HEAD:main; then
+                if [ "$original_branch" != "main" ]; then
+                    git checkout "$original_branch"
+                    echo "Successfully merged $source_branch into main, pushed to GitHub, and returned to $original_branch."
+                else
+                    echo "Successfully merged $source_branch into main and pushed to GitHub."
+                fi
             else
-                echo "Successfully merged $source_branch into main."
+                echo "Error: Merge succeeded locally, but failed to push main to GitHub."
+                [ "$original_branch" != "main" ] && git checkout "$original_branch"
+                return 1
             fi
         else
             echo "Merge conflict detected while merging $source_branch into main!"
-            echo "Please resolve conflicts with 'git status', or run 'git merge --abort' and return to $original_branch."
+            echo "Please resolve conflicts with 'git status', or run 'git merge --abort' to cancel."
+            [ "$original_branch" != "main" ] && git checkout "$original_branch"
             return 1
         fi
     fi
