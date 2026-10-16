@@ -409,29 +409,38 @@ sync() {
 
         elif [ "$mode" = "4" ]; then
             echo "--> Preparing to merge $current_branch into main..."
-            # Commit any uncommitted changes first
-            git add .
-            if ! git diff --cached --quiet; then
-                read -rp "Enter commit message for remaining changes (default 'Finalize $current_branch'): " wip_msg
-                wip_msg="${wip_msg:-Finalize $current_branch}"
-                git commit -m "$wip_msg"
-                echo "--> Pushing final changes to origin/$current_branch..."
-                git push origin "$current_branch" 2>/dev/null || true
-            fi
 
-            read -rp "Enter merge commit message (default 'Merge branch $current_branch into main'): " msg
+            # Exactly ONE merge message prompt
+            read -rp "Enter merge message (default 'Merge branch $current_branch into main'): " msg
             msg="${msg:-Merge branch $current_branch into main}"
 
+            # Auto-commit any remaining working changes or active recording logs
+            git add .
+            if ! git diff --cached --quiet; then
+                git commit -m "Finalize $current_branch before merge" --quiet
+                echo "--> Pushed final changes to origin/$current_branch."
+                git push origin "$current_branch" >/dev/null 2>&1 || true
+            fi
+
+            # Automated Stash Safeguard: Stash any trailing keystrokes or background logs
+            local has_stash="false"
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+                git stash push -u -m "temp_sync_recording_stash" >/dev/null 2>&1
+                has_stash="true"
+            fi
+
             echo "--> Switching to main..."
-            if ! git checkout main; then
+            if ! git checkout main 2>/dev/null && ! git checkout -m main 2>/dev/null; then
                 echo "Error: Could not switch to main."
+                [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
                 return 1
             fi
 
             echo "--> Pulling latest main from GitHub..."
             if ! git pull origin main; then
                 echo "Error: Could not pull latest main."
-                git checkout "$current_branch"
+                git checkout "$current_branch" 2>/dev/null || true
+                [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
                 return 1
             fi
 
@@ -440,7 +449,17 @@ sync() {
                 echo "--> Pushing merged main to GitHub..."
                 if git push origin main; then
                     echo -e "\033[1;32mSuccessfully merged $current_branch into main and published to GitHub!\033[0m"
-                    
+
+                    # Restore in-flight recording logs onto main
+                    if [ "$has_stash" = "true" ]; then
+                        git stash pop >/dev/null 2>&1 || true
+                        git add .
+                        if ! git diff --cached --quiet; then
+                            git commit -m "Update session recording" >/dev/null 2>&1 || true
+                            git push origin main >/dev/null 2>&1 || true
+                        fi
+                    fi
+
                     # Prompt for branch cleanup
                     echo ""
                     read -rp "Delete finished branch '$current_branch' from local and GitHub? [Y/n]: " del_choice
@@ -456,26 +475,37 @@ sync() {
                     fi
                 else
                     echo "Error: Merged locally, but failed to push to GitHub main."
+                    [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
                     return 1
                 fi
             else
                 echo "Merge conflict detected while merging $current_branch into main!"
                 echo "Resolve conflicts with 'git status', or run 'git merge --abort' to cancel."
-                git checkout "$current_branch"
+                git checkout "$current_branch" 2>/dev/null || true
+                [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
                 return 1
             fi
 
         elif [ "$mode" = "5" ]; then
             git add .
             if ! git diff --cached --quiet; then
-                read -rp "Save uncommitted changes before switching? (default 'WIP before switching to main'): " wip_msg
-                wip_msg="${wip_msg:-WIP before switching to main}"
-                git commit -m "$wip_msg"
-                git push origin "$current_branch" 2>/dev/null || true
+                git commit -m "WIP on $current_branch before switching to main" --quiet
+                git push origin "$current_branch" >/dev/null 2>&1 || true
+            fi
+            local has_stash="false"
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+                git stash push -u -m "temp_sync_switch_stash" >/dev/null 2>&1
+                has_stash="true"
             fi
             echo "--> Switching to main..."
-            git checkout main
-            echo "Switched to main. Your work on $current_branch is saved."
+            if git checkout main 2>/dev/null || git checkout -m main 2>/dev/null; then
+                [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
+                echo "Switched to main. Your work on $current_branch is saved."
+            else
+                echo "Error: Could not switch to main."
+                [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
+                return 1
+            fi
         fi
 
     else
@@ -509,21 +539,30 @@ sync() {
 
             git add .
             if ! git diff --cached --quiet; then
-                read -rp "Enter commit message for local changes on main before switching (default 'WIP on main'): " wip_msg
-                wip_msg="${wip_msg:-WIP on main}"
-                git commit -m "$wip_msg"
+                git commit -m "WIP on main before switching" --quiet
+            fi
+
+            local has_stash="false"
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+                git stash push -u -m "temp_sync_switch_stash" >/dev/null 2>&1
+                has_stash="true"
             fi
 
             echo "--> Switching to branch '$target_branch'..."
             if git checkout "$target_branch" 2>/dev/null; then
                 echo "Switched to local branch '$target_branch'."
+                [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
             elif git checkout -b "$target_branch" "origin/$target_branch" 2>/dev/null; then
                 echo "Checked out remote branch '$target_branch' locally."
+                [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
+            elif git checkout -m "$target_branch" 2>/dev/null; then
+                echo "Switched to branch '$target_branch'."
+                [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
             else
                 echo "Error: Could not switch to branch '$target_branch'."
+                [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
                 return 1
             fi
-
         elif [ "$mode" = "3" ]; then
             echo "--> Pulling latest updates from origin/main..."
             if git pull origin main; then
