@@ -13,5 +13,5 @@ _Where the platform can be reached or attacked._
 
 ## Top three material risks
 1. _Risk one._
-2. _Risk two._
 3. _Risk three._
+2. _Risk two._
