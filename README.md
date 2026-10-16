@@ -17,7 +17,10 @@ Replace the placeholders below in your first Friday (Phase 1), then commit.
 
 ## How this repository is organised
 
-Every folder has its own `README.md` explaining exactly what belongs in it. In order of the year:
+-Every folder has its own `README.md` explaining exactly what belongs in it. In order of the year:
+
+-Rules.md is defining the global rules for anybody in the organisation who is authorised to make changes and commit to 
+GITHUB.
 
 - **charter/** — your project charter, business profile, and POPIA exposure assessment (Phase 1)
 - **threat-model/** — the threat model, versions 0 to 3, each kept (Phases 1 to 4)

@@ -2,7 +2,7 @@
 
 # Resolve repo root dynamically (2 levels up from tools/recording/)
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-RECORDINGS_DIR="$REPO_DIR/asciinema_recordings"
+RECORDINGS_DIR="$REPO_DIR/evidence"
 
 # Clear any conflicting aliases so function definitions are never corrupted
 unalias alp activate-alp feature feat rec playrec play sync move update move-nomvula update-nomvula issues issue iss 2>/dev/null || true
@@ -31,6 +31,70 @@ _ensure_ssh_agent() {
     fi
 }
 
+# Helper: Safely organize loose .cast files into evidence/<author>/ based on watermark or shell prompt
+_organize_recordings() {
+    python3 -c "
+import os, re, glob, shutil
+
+repo_dir = '$REPO_DIR'
+evidence_dir = os.path.join(repo_dir, 'evidence')
+os.makedirs(evidence_dir, exist_ok=True)
+
+def detect_cast_author(filepath):
+    try:
+        with open(filepath, 'r', errors='ignore') as f:
+            for _ in range(40):
+                line = f.readline()
+                if not line:
+                    break
+                # Check for watermark: Assignee: <name>
+                m = re.search(r'Assignee:\s*([A-Za-z0-9_-]+)', line, re.IGNORECASE)
+                if m:
+                    return m.group(1).lower()
+                # Check for shell prompt: <username>@<hostname>
+                m = re.search(r'([a-zA-Z0-9_-]+)@[A-Za-z0-9_-]+', line)
+                if m:
+                    uname = m.group(1).lower()
+                    if uname not in ['root', 'daemon', 'nobody']:
+                        return uname
+    except Exception:
+        pass
+    return None
+
+candidates = []
+for f in glob.glob(os.path.join(repo_dir, '*.cast')):
+    candidates.append(f)
+
+rec_dir = os.path.join(repo_dir, 'asciinema_recordings')
+if os.path.isdir(rec_dir):
+    for root, _, files in os.walk(rec_dir):
+        for f in files:
+            if f.endswith('.cast'):
+                candidates.append(os.path.join(root, f))
+
+for filepath in candidates:
+    author = detect_cast_author(filepath)
+    if author:
+        dest_dir = os.path.join(evidence_dir, author)
+        os.makedirs(dest_dir, exist_ok=True)
+        dest_file = os.path.join(dest_dir, os.path.basename(filepath))
+        if os.path.abspath(filepath) != os.path.abspath(dest_file):
+            shutil.move(filepath, dest_file)
+            print(f'Organized: {os.path.basename(filepath)} -> evidence/{author}/')
+    else:
+        # Prevent misattribution: do not move files without verified author
+        pass
+
+if os.path.isdir(rec_dir):
+    for root, dirs, _ in os.walk(rec_dir, topdown=False):
+        for d in dirs:
+            dirpath = os.path.join(root, d)
+            if not os.listdir(dirpath):
+                try: os.rmdir(dirpath)
+                except Exception: pass
+" 2>/dev/null
+}
+
 # 1. Feature Branch Command
 feature() {
     if [ -z "$1" ]; then
@@ -47,8 +111,10 @@ feature() {
 }
 alias feat='feature'
 
-# 2. Recording Command (with Auto-Watermark & Per-User Folder)
+# 2. Recording Command (with Auto-Organization & Watermark)
 rec() {
+    _organize_recordings
+
     local dev_user
     dev_user="$(git -C "$REPO_DIR" config user.name 2>/dev/null || echo "$USER")"
     dev_user="$(echo "$dev_user" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')"
@@ -113,6 +179,46 @@ playrec() {
 }
 alias play='playrec'
 
+# Helper: Interactive numbered branch selector
+_select_branch() {
+    local default_branch="$1"
+    local prompt_text="$2"
+    SELECTED_BRANCH=""
+
+    echo "Fetching latest remote branches..."
+    git fetch origin >/dev/null 2>&1
+
+    local branches=()
+    while IFS= read -r b; do
+        b="${b#origin/}"
+        [ -n "$b" ] && branches+=("$b")
+    done < <(git branch -r 2>/dev/null | grep -v "HEAD" | sed "s/^[[:space:]]*//" | sort -u)
+
+    echo ""
+    echo "Available remote branches:"
+    for i in "${!branches[@]}"; do
+        local num=$((i + 1))
+        if [ "${branches[i]}" = "$default_branch" ]; then
+            echo "  $num) ${branches[i]} (default)"
+        else
+            echo "  $num) ${branches[i]}"
+        fi
+    done
+
+    echo ""
+    local choice
+    read -rp "$prompt_text [1-${#branches[@]}] (default '$default_branch'): " choice
+    choice="$(echo "$choice" | tr -d '[:space:]')"
+
+    if [ -z "$choice" ]; then
+        SELECTED_BRANCH="$default_branch"
+    elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#branches[@]}" ]; then
+        SELECTED_BRANCH="${branches[choice-1]}"
+    else
+        SELECTED_BRANCH="${choice#origin/}"
+    fi
+}
+
 # 4. Interactive Git Sync (SSH-Ready with Explicit Merge Options)
 sync() {
     cd "$REPO_DIR" || { echo "Error: Cannot enter repo $REPO_DIR"; return 1; }
@@ -130,59 +236,85 @@ sync() {
     echo -e "\033[1;32mCurrent Active Branch: $current_branch\033[0m"
     echo "Choose sync mode:"
     echo "1) Save to MY BRANCH (commit and push work in progress)"
-    echo "2) Pull latest MAIN into my branch (update branch with team work)"
-    echo "3) Merge MY BRANCH into MAIN and publish (share finished work)"
+    echo "2) Pull/Merge into MY BRANCH (from main or a branch of your choice)"
+    echo "3) Merge a branch into MAIN and publish (from current or a branch of your choice)"
     read -rp "Select [1/2/3] (default 1): " mode
     mode="${mode:-1}"
 
     if [ "$mode" = "2" ]; then
-        echo "--> Staging local changes on $current_branch before pulling main..."
+        echo "--> Staging local changes on $current_branch before merging..."
         git add .
         if ! git diff --cached --quiet; then
-            read -rp "Enter commit message for local changes (default 'WIP before updating from main'): " wip_msg
-            wip_msg="${wip_msg:-WIP before updating from main}"
+            read -rp "Enter commit message for local changes (default 'WIP before merge'): " wip_msg
+            wip_msg="${wip_msg:-WIP before merge}"
             git commit -m "$wip_msg"
         fi
 
-        echo "--> Fetching latest updates from origin/main..."
-        git fetch origin main
-        echo "--> Merging origin/main into $current_branch..."
-        if git merge origin/main --no-edit; then
-            echo "Successfully updated $current_branch with latest changes from MAIN."
+        _select_branch "main" "Select branch to merge into $current_branch"
+        local source_branch="$SELECTED_BRANCH"
+
+        local branch_ref=""
+        if git show-ref --verify --quiet "refs/heads/$source_branch"; then
+            branch_ref="$source_branch"
+        elif git show-ref --verify --quiet "refs/remotes/origin/$source_branch"; then
+            branch_ref="origin/$source_branch"
         else
-            echo "Merge conflict detected while merging main into $current_branch!"
+            echo "Error: Branch '$source_branch' not found locally or on remote."
+            return 1
+        fi
+
+        echo "--> Merging $branch_ref into $current_branch..."
+        if git merge "$branch_ref" --no-edit; then
+            echo "Successfully merged $source_branch into $current_branch."
+        else
+            echo "Merge conflict detected while merging $source_branch into $current_branch!"
             echo "Resolve conflicts with 'git status' and commit, or run 'git merge --abort'."
             return 1
         fi
     elif [ "$mode" = "3" ]; then
-        read -rp "Enter merge commit message (default 'Merge $current_branch into main'): " msg
-        msg="${msg:-Merge $current_branch into main}"
+        _select_branch "$current_branch" "Select branch to merge into main"
+        local source_branch="$SELECTED_BRANCH"
+
+        local branch_ref=""
+        if git show-ref --verify --quiet "refs/heads/$source_branch"; then
+            branch_ref="$source_branch"
+        elif git show-ref --verify --quiet "refs/remotes/origin/$source_branch"; then
+            branch_ref="origin/$source_branch"
+        else
+            echo "Error: Branch '$source_branch' not found locally or on remote."
+            return 1
+        fi
+
+        read -rp "Enter merge commit message (default 'Merge $source_branch into main'): " msg
+        msg="${msg:-Merge $source_branch into main}"
 
         echo "--> Staging local changes on $current_branch..."
         git add .
         if ! git diff --cached --quiet; then
-            git commit -m "WIP before merging into main: $msg"
+            git commit -m "WIP before merging $source_branch into main: $msg"
         fi
 
-        if [ "$current_branch" = "main" ]; then
-            echo "--> Already on main. Pulling and pushing updates..."
-            git pull --rebase origin main
-            git push origin main
-            echo "Successfully synced MAIN."
-        else
+        local original_branch="$current_branch"
+        if [ "$current_branch" != "main" ]; then
             echo "--> Switching to main..."
             git checkout main
-            git pull origin main
-            echo "--> Merging $current_branch into main..."
-            if git merge "$current_branch" -m "$msg"; then
-                git push origin main
-                git checkout "$current_branch"
-                echo "Successfully merged $current_branch into MAIN and returned to $current_branch."
+        fi
+        echo "--> Pulling latest main..."
+        git pull --rebase origin main
+
+        echo "--> Merging $branch_ref into main..."
+        if git merge "$branch_ref" -m "$msg"; then
+            git push origin main
+            if [ "$original_branch" != "main" ]; then
+                git checkout "$original_branch"
+                echo "Successfully merged $source_branch into MAIN and returned to $original_branch."
             else
-                echo "Merge conflict detected while merging $current_branch into main!"
-                echo "Please resolve conflicts, or run 'git merge --abort' and return to $current_branch."
-                return 1
+                echo "Successfully merged $source_branch into MAIN."
             fi
+        else
+            echo "Merge conflict detected while merging $source_branch into main!"
+            echo "Please resolve conflicts, or run 'git merge --abort' and return to $original_branch."
+            return 1
         fi
     else
         read -rp "Enter commit message (default 'update'): " msg
@@ -217,18 +349,13 @@ alias activate-alp='alp'
 # 6. Workspace Synchronization (Windows Documents <-> Linux WSL)
 move() {
     local src_repo="$REPO_DIR"
-    local src_rec="$RECORDINGS_DIR"
     local win_dest="/mnt/c/Users/michael/Documents/nomvula_agri_finance"
 
     mkdir -p "$win_dest"
     echo "Syncing repository from Linux to Windows Documents..."
     if [ -d "$src_repo" ]; then
         # Uses --delete so files deleted or moved in Git are purged from Windows, preventing ghost file resurrection
-        rsync -rtv --delete --exclude=".git" --exclude="asciinema_recordings" "$src_repo/" "$win_dest/"
-    fi
-    if [ -d "$src_rec" ]; then
-        mkdir -p "$win_dest/asciinema_recordings"
-        rsync -rtv --update "$src_rec/" "$win_dest/asciinema_recordings/"
+        rsync -rtv --delete --exclude=".git" "$src_repo/" "$win_dest/"
     fi
     echo "Done. Windows Documents now matches your Linux workspace."
 }
@@ -236,7 +363,6 @@ move() {
 update() {
     local win_src="/mnt/c/Users/michael/Documents/nomvula_agri_finance"
     local dest_repo="$REPO_DIR"
-    local dest_rec="$RECORDINGS_DIR"
 
     if [ ! -d "$win_src" ]; then
         echo "Error: Windows Documents folder not found at $win_src"
@@ -246,11 +372,7 @@ update() {
     echo "Retrieving changes from Windows Documents to Linux..."
     if [ -d "$dest_repo" ]; then
         # Preserves Linux permissions and ignores Windows metadata to prevent dirty Git index
-        rsync -rtv --update --no-perms --no-owner --no-group --exclude=".git" --exclude="asciinema_recordings" "$win_src/" "$dest_repo/"
-    fi
-    if [ -d "$win_src/asciinema_recordings" ]; then
-        mkdir -p "$dest_rec"
-        rsync -rtv --update "$win_src/asciinema_recordings/" "$dest_rec/"
+        rsync -rtv --update --no-perms --no-owner --no-group --exclude=".git" "$win_src/" "$dest_repo/"
     fi
     echo "Done. Linux workspace updated with Windows edits."
 }
