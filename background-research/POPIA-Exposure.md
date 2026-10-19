@@ -21,7 +21,7 @@ Condition 7: Security Safeguards (Integrity and Confidentiality)
   - Encrypted transport channels (TLS 1.3) with mutual authentication for all store-and-forward batch uploads.
   - Enforced ephemeral token-based authentication on remote endpoints with short lease windows to limit exposure if a device is stolen.
 
-Condition 4: Information Quality
+Condition 5: Information Quality
 * Risk Scenario: Intermittent rural network drops cause partial batch synchronization, leading to stale member balances, double-crediting, or false default flags.
 * Technical Control Requirement:
   - Transaction queue idempotency mechanisms and atomic batch processing to prevent duplicate or corrupted records.

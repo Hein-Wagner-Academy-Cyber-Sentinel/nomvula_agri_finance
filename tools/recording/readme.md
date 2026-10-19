@@ -1,41 +1,76 @@
-# Team Developer Workflow & Recording Setup
+# Developer Workflow and Recording Tools
 
-This directory contains shared helper functions for terminal recordings, automated watermarks, and safe branch syncing.
+This directory provides helper commands for terminal session recording, Git collaboration, issue tracking, and synchronization between Linux WSL and Windows Documents.
 
----
+## Setup
 
-## 📧 One-Time Setup Instructions
+To load these commands into your shell, run this once from the repository root:
 
-Follow these two steps in your WSL terminal:
-
-### 1. Install Required Packages
-sudo apt update && sudo apt install -y asciinema git
-
-### 2. Enable the Helper CommandsJFrom the repo root directory (`nomvula_agri_finance`), run:
-echo "source \$Tpwd)/tools/recording/helpers.sh" >> ~/.bashrc
+```bash
+bash tools/recording/install.sh
 source ~/.bashrc
+```
+
+Whenever updates are made to the helpers, reload your current shell with:
+
+```bash
+source ~/.bashrc
+```
 
 ---
 
-## 📦 Daily Commands
+## Available Commands
 
-3## 1. `feature <name>` — Start a New Branch
-* Creates and switches to an isolated workspace called `<your-name>/<name>`.
-* Use this for all testing, features, and experiments.
+### 1. Terminal Recording (`rec` & `play`)
 
-3## 2. `rec` “ Start a Recording (with Auto-Watermark)
-* Injects a header with your username, session name, and timestamp.
-* Caps idle time at 1.5s for clean playback.
-* Press `Ctrl+D` or type `exit` to stop.
+- `rec`: Starts an Asciinema terminal session with an automated watermark header containing your Git username, session name, and timestamp.
+  - Automatically saves the recording to your dedicated portfolio directory: `evidence/<username>/`.
+  - Automatically sweeps and organizes loose `.cast` files into each team member's respective folder by reading the watermark or terminal prompt signature (`user@hostname`).
+  - Never misattributes files: if a recording's author cannot be confirmed, it is left untouched.
+  - To stop recording, press `Ctrl+D` or type `exit`.
 
-### 3. `playrec [name]` �p Play Back Recordings
-* Files list if no name is given. Plays back watermarked sessions.
+- `play [name]` (alias: `playrec`): Plays back a terminal recording using Asciinema.
+  - Run without arguments (`play`) to list all recordings across all team members in `evidence/`.
+  - Run with a filename or path (e.g., `play session1` or `play michael/session1`) to play that recording.
 
-### 4. `sync` — Interactive Git Sync
-* Prompts you whether to save to your private branch (Option 1) or merge/publish to `shared main` (Option 2).
+### 2. Git Feature Branching (`feat` & `feature`)
+
+- `feat <name>` (alias: `feature <name>`): Creates and switches to a new feature branch prefixed with your username (e.g., `michael/my-feature`).
+  - Helps comply with team Git rules: one task, one feature branch, one person.
+
+### 3. Interactive Git Synchronization & Merging (`sync`)
+
+- `sync`: Interactive Git workflow manager with automatic SSH agent authentication.
+  - **Option 1 (Push to a branch)**: Prompts for a commit message, stages and commits local changes, presents a numbered sub-menu of GitHub branches, and pushes your current work directly to `origin/<target-branch>` (via `HEAD:<target-branch>`). You can push to existing remote branches or create new branches on GitHub without needing separate local branch checkouts.
+  - **Option 2 (Pull from a branch)**: Presents a numbered sub-menu of GitHub branches (e.g. `main` or a feature branch), and pulls updates directly from `origin/<selected-branch>` into your working tree. Zero auto-commit prompts or merge wizards.
+  - **Option 3 (Merge a branch into main)**: Presents a numbered sub-menu of branches on GitHub (excluding `main`), pulls latest `origin/main`, merges the selected remote branch, pushes the updated `main` to GitHub, and returns to your working branch.
+### 4. GitHub Issue Tracking (`issues` & `issue`)
+
+- `issues`: Lists all open GitHub issues for the repository directly in the terminal.
+  - Optional filters: `issues closed` or `issues all`.
+- `issue <number>` (alias: `iss <number>`): Displays the full details, title, author, date, and description of a specific issue (e.g., `issue 1` or `iss 2`).
+
+### 5. Windows and Linux Synchronization (`move` & `update`)
+
+- `move`: Copies the entire repository from Linux WSL to `C:\Users\michael\Documents\nomvula_agri_finance`.
+  - Uses mirror deletion (`--delete`) so files deleted or moved in Git are also cleaned up on Windows, preventing ghost files.
+- `update`: Copies files edited in Windows Documents back into Linux WSL.
+  - Preserves Linux file permissions and skips Windows metadata to keep Git status clean.
+- `move-nomvula`: Alias for `move`.
+- `update-nomvula`: Alias for `update`.
+
+### 6. Python Environment (`alp`)
+
+- `alp` (alias: `activate-alp`): Activates the Python virtual environment located at `~/alp-env`.
 
 ---
 
-## ‿ Editing Recordings
-1. Open file: `nano asciinema_recordings/<name>.cast`
-2. Remove typos and save (`Ctrl+O`, then `Ctrl+X`).
+## Recommended Daily Workflow
+
+1. Review pending issues: `issues`
+2. Start a new feature branch: `feat task-description`
+3. Update branch with latest team work: `sync` (Option 2)
+4. Record your work session: `rec`
+5. Push your progress: `sync` (Option 1)
+6. Copy changes to Windows for local review: `move`
+7. When work is approved and ready to merge: `sync` (Option 3)
