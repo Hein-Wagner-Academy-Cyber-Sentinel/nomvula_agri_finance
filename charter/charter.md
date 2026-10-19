@@ -1,8 +1,8 @@
- Project Charter: Nomvula AgriFinance Secure Platform <Persona name>
+ Project Charter: Nomvula AgriFinance Secure Platform 
 
-_Complete this in Phase 1._
 
 ## 1. Executive Summary & Team Roles
+
 * Client / Persona: Nomvula AgriFinance (Agricultural finance cooperative)
 * Team (Pair 5): Lutho Mathontsi & Michael Robberts
 * Initial Roles (Phase 1):
