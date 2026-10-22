@@ -60,7 +60,7 @@ source ~/.bashrc
 
 ### 5. Windows and Linux Synchronization (`move` & `update`)
 
-- `move`: Copies the entire repository from Linux WSL to `C:\Users\michael\Documents\nomvula_agri_finance`.
+- `move`: Copies the entire repository from Linux WSL to your Windows Documents folder (`nomvula_agri_finance`).
   - Uses mirror deletion (`--delete`) so files deleted or moved in Git are also cleaned up on Windows, preventing ghost files.
 - `update`: Copies files edited in Windows Documents back into Linux WSL.
   - Preserves Linux file permissions and skips Windows metadata to keep Git status clean.

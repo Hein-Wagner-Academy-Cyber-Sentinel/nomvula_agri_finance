@@ -598,7 +598,12 @@ sync() {
 function alp() {
     if [ -f "$HOME/alp-env/bin/activate" ]; then
         source "$HOME/alp-env/bin/activate"
-        echo "ALP virtual environment activated."
+        if [ -d "$REPO_DIR" ]; then
+            cd "$REPO_DIR" || true
+        elif [ -d "$HOME/alp-env/nomvula_agri_finance" ]; then
+            cd "$HOME/alp-env/nomvula_agri_finance" || true
+        fi
+        echo "ALP virtual environment activated in $PWD."
     else
         echo "Error: Virtual environment not found at $HOME/alp-env/bin/activate"
         return 1
@@ -607,9 +612,27 @@ function alp() {
 alias activate-alp='alp'
 
 # 6. Workspace Synchronization (Windows Documents <-> Linux WSL)
+_get_win_dest() {
+    local win_prof=""
+    if command -v cmd.exe >/dev/null 2>&1; then
+        local raw
+        raw=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d "\r\n")
+        if [ -n "$raw" ]; then
+            win_prof=$(wslpath -u "$raw" 2>/dev/null)
+        fi
+    fi
+    if [ -z "$win_prof" ] || [ ! -d "$win_prof" ]; then
+        if [ -d "/mnt/c/Users/$USER" ]; then
+            win_prof="/mnt/c/Users/$USER"
+        fi
+    fi
+    echo "$win_prof/Documents/nomvula_agri_finance"
+}
+
 move() {
     local src_repo="$REPO_DIR"
-    local win_dest="/mnt/c/Users/michael/Documents/nomvula_agri_finance"
+    local win_dest
+    win_dest="$(_get_win_dest)"
 
     mkdir -p "$win_dest"
     echo "Syncing repository from Linux to Windows Documents..."
@@ -621,7 +644,8 @@ move() {
 }
 
 update() {
-    local win_src="/mnt/c/Users/michael/Documents/nomvula_agri_finance"
+    local win_src
+    win_src="$(_get_win_dest)"
     local dest_repo="$REPO_DIR"
 
     if [ ! -d "$win_src" ]; then
@@ -636,7 +660,6 @@ update() {
     fi
     echo "Done. Linux workspace updated with Windows edits."
 }
-
 alias move-nomvula='move'
 alias update-nomvula='update'
 
