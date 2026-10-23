@@ -1,0 +1,3 @@
+param location string = 'southafricanorth'
+
+output testOutput string = 'Bicep is compiling successfully in ${location}!'
