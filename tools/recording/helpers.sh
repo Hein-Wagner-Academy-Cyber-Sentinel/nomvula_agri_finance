@@ -345,13 +345,72 @@ sync() {
         local target_branch="$SELECTED_BRANCH"
         [ -z "$target_branch" ] && target_branch="$current_branch"
 
+        if [ "$current_branch" != "main" ] && [ "$target_branch" = "main" ]; then
+            echo ""
+            echo "Warning: You are currently on '$current_branch', but selected 'main'."
+            echo "According to team GIT_RULES, we do not push feature branches directly into main."
+            echo "To publish finished work into main, please use Sync Mode 3 ('Merge a branch into main')."
+            echo ""
+            read -rp "Are you sure you want to attempt pushing directly to main? [y/N]: " confirm_main
+            if [[ ! "$confirm_main" =~ ^[Yy]$ ]]; then
+                echo "Cancelled push to main. Your changes remain safely committed on '$current_branch'."
+                return 0
+            fi
+        fi
+
         echo "--> Pushing local changes to GitHub branch origin/$target_branch..."
-        if git push origin "HEAD:$target_branch"; then
+        local push_output
+        push_output="$(git push origin "HEAD:$target_branch" 2>&1)"
+        local push_status=$?
+
+        if [ $push_status -eq 0 ]; then
             echo "Successfully pushed to origin/$target_branch."
         else
-            echo "Error: Failed to push to origin/$target_branch."
-            echo "If the remote branch has newer commits, pull from it first (Option 2)."
-            return 1
+            echo ""
+            if echo "$push_output" | grep -qiE "non-fast-forward|fetch first|behind its remote"; then
+                echo "============================================================"
+                echo "Push Blocked: Remote branch 'origin/$target_branch' has newer commits."
+                echo "============================================================"
+                echo "Why this happened:"
+                echo "  A teammate pushed updates to 'origin/$target_branch' while you were working."
+                echo "  Git safely blocked your push so their work won't be overwritten."
+                echo ""
+                echo "What to do:"
+                echo "  Integrate their changes first, then push."
+                echo "============================================================"
+                echo ""
+                read -rp "Would you like to pull the latest changes from origin/$target_branch now? [Y/n]: " auto_pull
+                auto_pull="${auto_pull:-Y}"
+                if [[ "$auto_pull" =~ ^[Yy]$ ]]; then
+                    echo "--> Pulling updates from origin/$target_branch into $current_branch..."
+                    if git pull origin "$target_branch"; then
+                        echo "Successfully pulled and merged team updates."
+                        echo "--> Retrying push to origin/$target_branch..."
+                        if git push origin "HEAD:$target_branch"; then
+                            echo "Successfully pushed to origin/$target_branch."
+                            return 0
+                        else
+                            echo "Push failed after pulling. Please check 'git status'."
+                            return 1
+                        fi
+                    else
+                        echo ""
+                        echo "Merge conflict detected while pulling!"
+                        echo "Check conflicting files with 'git status', or run 'git merge --abort' to cancel."
+                        return 1
+                    fi
+                else
+                    echo "Skipped pulling."
+                    echo "To pull later: Run 'sync', choose Option 2 (Pull from a branch), and press Enter."
+                    return 1
+                fi
+            else
+                echo "Error: Failed to push to origin/$target_branch."
+                echo "$push_output"
+                echo ""
+                echo "Recommendation: Run 'git status' or verify your network/SSH connection."
+                return 1
+            fi
         fi
 
     elif [ "$mode" = "2" ]; then
@@ -363,8 +422,17 @@ sync() {
         if git pull origin "$source_branch"; then
             echo "Successfully pulled from origin/$source_branch."
         else
+            echo ""
+            echo "============================================================"
             echo "Error: Pull did not complete cleanly."
-            echo "If you have uncommitted local changes that conflict, commit them first (Option 1) or stash them."
+            echo "============================================================"
+            echo "Why this happened:"
+            echo "  You may have uncommitted local changes that conflict with the incoming code."
+            echo ""
+            echo "What to do:"
+            echo "  1. If you have uncommitted changes, save them first with: sync (Option 1)"
+            echo "  2. Or check conflicting files with: git status"
+            echo "============================================================"
             return 1
         fi
 
