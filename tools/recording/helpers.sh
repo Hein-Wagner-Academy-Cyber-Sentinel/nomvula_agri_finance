@@ -97,17 +97,45 @@ if os.path.isdir(rec_dir):
 
 # 1. Feature Branch Command
 feature() {
-    if [ -z "$1" ]; then
-        echo "Usage: feature <branch-name> (or: feat <branch-name>)"
-        return 1
-    fi
     cd "$REPO_DIR" || return 1
+    _ensure_ssh_agent
+    
     local dev_user
     dev_user="$(git -C "$REPO_DIR" config user.name 2>/dev/null || echo "$USER")"
     dev_user="$(echo "$dev_user" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')"
-    local branch_name="${dev_user}/$1"
-    git checkout -b "$branch_name"
-    echo "Switched to new feature branch: $branch_name"
+    
+    local task_name="$1"
+    if [ -z "$task_name" ]; then
+        read -rp "Enter new task/feature name (e.g. loan-calc): " task_name
+    fi
+    task_name="$(echo "$task_name" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')"
+    if [ -z "$task_name" ]; then
+        echo "Error: Task name cannot be empty."
+        return 1
+    fi
+    
+    local branch_name="$task_name"
+    if [[ "$task_name" != *"$dev_user/"* ]]; then
+        branch_name="${dev_user}/$task_name"
+    fi
+
+    # Ensure local main is up to date before branching
+    local cur_b
+    cur_b="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+    if [ "$cur_b" = "main" ]; then
+        echo "Updating main before creating new branch..."
+        git pull origin main >/dev/null 2>&1
+    fi
+
+    if git checkout -b "$branch_name"; then
+        echo -e "\033[1;32mSwitched to new feature branch: $branch_name\033[0m"
+        echo "Pushing new branch to GitHub..."
+        git push -u origin "$branch_name" 2>/dev/null || true
+        echo "Ready to work! Run 'sync' anytime to save and push your progress."
+    else
+        echo "Error: Could not create branch $branch_name."
+        return 1
+    fi
 }
 alias feat='feature'
 
@@ -213,7 +241,7 @@ _select_branch() {
         [ -n "$b" ] && raw_branches+=("$b")
     done < <(git branch -r 2>/dev/null | grep -v 'HEAD' | sed 's/^[[:space:]]*//')
 
-    # 2. Collect local branches if any exist
+    # 2. Collect local branches
     while IFS= read -r b; do
         b="${b#\* }"
         b="$(echo "$b" | tr -d '[:space:]')"
@@ -307,7 +335,7 @@ _select_branch() {
     done
 }
 
-# 4. Interactive Git Sync (SSH-Ready)
+# 4. Context-Aware Git Sync (SSH-Ready)
 sync() {
     cd "$REPO_DIR" || { echo "Error: Cannot enter repo $REPO_DIR"; return 1; }
     
@@ -323,35 +351,98 @@ sync() {
 
     echo ""
     echo -e "\033[1;32mCurrent Active Branch: $current_branch\033[0m"
-    echo "Choose sync mode:"
-    echo "1) Push to a branch (save work in progress to GitHub)"
-    echo "2) Pull from a branch (update with team work from GitHub)"
-    echo "3) Merge a branch into main (publish finished work to GitHub main)"
-    read -rp "Select [1/2/3] (default 1): " mode
-    mode="${mode:-1}"
 
-    if [ "$mode" = "1" ]; then
-        read -rp "Enter commit message (default 'update'): " msg
-        msg="${msg:-update}"
+    if [ "$current_branch" != "main" ]; then
+        # =========================================================================
+        # FEATURE BRANCH WORKFLOW (Work is isolated on this branch)
+        # =========================================================================
+        echo "Feature Branch Options:"
+        echo "1) Save and Push (commit & push work in progress to this branch)"
+        echo "2) Pull latest updates for this branch from GitHub"
+        echo "3) Update this branch with latest changes from main"
+        echo "4) Finish & Merge this branch into main (publish and clean up)"
+        echo "5) Switch back to main (save uncommitted work first)"
+        read -rp "Select [1-5] (default 1): " mode
+        mode="${mode:-1}"
 
-        git add .
-        if ! git diff --cached --quiet; then
-            git commit -m "$msg"
-        else
-            echo "No local changes to commit."
+        if [ "$mode" = "1" ]; then
+            read -rp "Enter commit message (default 'WIP on $current_branch'): " msg
+            msg="${msg:-WIP on $current_branch}"
+
+            git add .
+            if ! git diff --cached --quiet; then
+                git commit -m "$msg"
+            else
+                echo "No local changes to commit."
+            fi
+
+<<<<<<< HEAD
+        if [ "$current_branch" != "main" ] && [ "$target_branch" = "main" ]; then
+            echo ""
+            echo "Warning: You are currently on '$current_branch', but selected 'main'."
+            echo "According to team GIT_RULES, we do not push feature branches directly into main."
+            echo "To publish finished work into main, please use Sync Mode 3 ('Merge a branch into main')."
+            echo ""
+            read -rp "Are you sure you want to attempt pushing directly to main? [y/N]: " confirm_main
+            if [[ ! "$confirm_main" =~ ^[Yy]$ ]]; then
+                echo "Cancelled push to main. Your changes remain safely committed on '$current_branch'."
+                return 0
+            fi
         fi
 
-        _select_branch "$current_branch" "Select branch to push to" "" "true"
-        local target_branch="$SELECTED_BRANCH"
-        [ -z "$target_branch" ] && target_branch="$current_branch"
-
         echo "--> Pushing local changes to GitHub branch origin/$target_branch..."
-        if git push origin "HEAD:$target_branch"; then
+        local push_output
+        push_output="$(git push origin "HEAD:$target_branch" 2>&1)"
+        local push_status=$?
+
+        if [ $push_status -eq 0 ]; then
             echo "Successfully pushed to origin/$target_branch."
         else
-            echo "Error: Failed to push to origin/$target_branch."
-            echo "If the remote branch has newer commits, pull from it first (Option 2)."
-            return 1
+            echo ""
+            if echo "$push_output" | grep -qiE "non-fast-forward|fetch first|behind its remote"; then
+                echo "============================================================"
+                echo "Push Blocked: Remote branch 'origin/$target_branch' has newer commits."
+                echo "============================================================"
+                echo "Why this happened:"
+                echo "  A teammate pushed updates to 'origin/$target_branch' while you were working."
+                echo "  Git safely blocked your push so their work won't be overwritten."
+                echo ""
+                echo "What to do:"
+                echo "  Integrate their changes first, then push."
+                echo "============================================================"
+                echo ""
+                read -rp "Would you like to pull the latest changes from origin/$target_branch now? [Y/n]: " auto_pull
+                auto_pull="${auto_pull:-Y}"
+                if [[ "$auto_pull" =~ ^[Yy]$ ]]; then
+                    echo "--> Pulling updates from origin/$target_branch into $current_branch..."
+                    if git pull origin "$target_branch"; then
+                        echo "Successfully pulled and merged team updates."
+                        echo "--> Retrying push to origin/$target_branch..."
+                        if git push origin "HEAD:$target_branch"; then
+                            echo "Successfully pushed to origin/$target_branch."
+                            return 0
+                        else
+                            echo "Push failed after pulling. Please check 'git status'."
+                            return 1
+                        fi
+                    else
+                        echo ""
+                        echo "Merge conflict detected while pulling!"
+                        echo "Check conflicting files with 'git status', or run 'git merge --abort' to cancel."
+                        return 1
+                    fi
+                else
+                    echo "Skipped pulling."
+                    echo "To pull later: Run 'sync', choose Option 2 (Pull from a branch), and press Enter."
+                    return 1
+                fi
+            else
+                echo "Error: Failed to push to origin/$target_branch."
+                echo "$push_output"
+                echo ""
+                echo "Recommendation: Run 'git status' or verify your network/SSH connection."
+                return 1
+            fi
         fi
 
     elif [ "$mode" = "2" ]; then
@@ -363,8 +454,17 @@ sync() {
         if git pull origin "$source_branch"; then
             echo "Successfully pulled from origin/$source_branch."
         else
+            echo ""
+            echo "============================================================"
             echo "Error: Pull did not complete cleanly."
-            echo "If you have uncommitted local changes that conflict, commit them first (Option 1) or stash them."
+            echo "============================================================"
+            echo "Why this happened:"
+            echo "  You may have uncommitted local changes that conflict with the incoming code."
+            echo ""
+            echo "What to do:"
+            echo "  1. If you have uncommitted changes, save them first with: sync (Option 1)"
+            echo "  2. Or check conflicting files with: git status"
+            echo "============================================================"
             return 1
         fi
 
@@ -400,37 +500,222 @@ sync() {
             echo "--> Switching to main..."
             if ! git checkout main; then
                 echo "Error: Could not switch to main."
+=======
+            echo "--> Pushing to GitHub branch origin/$current_branch..."
+            if git push -u origin "$current_branch"; then
+                echo "Successfully pushed to origin/$current_branch."
+            else
+                echo "Error: Failed to push to origin/$current_branch."
+                echo "If there are remote changes, try pulling first (Option 2)."
+>>>>>>> 24e90079ec4aa048a7cc9a186ae2acbb72fccb89
                 return 1
             fi
-        fi
 
-        echo "--> Pulling latest main from GitHub..."
-        if ! git pull origin main; then
-            echo "Error: Could not pull latest main."
-            [ "$original_branch" != "main" ] && git checkout "$original_branch"
-            return 1
-        fi
+        elif [ "$mode" = "2" ]; then
+            echo "--> Pulling latest updates from origin/$current_branch..."
+            if git pull origin "$current_branch"; then
+                echo "Successfully pulled from origin/$current_branch."
+            else
+                echo "Error: Pull did not complete cleanly."
+                return 1
+            fi
 
-        echo "--> Merging $branch_ref into main..."
-        if git merge "$branch_ref" -m "$msg"; then
-            echo "--> Pushing merged main to GitHub..."
-            if git push origin HEAD:main; then
-                if [ "$original_branch" != "main" ]; then
-                    git checkout "$original_branch"
-                    echo "Successfully merged $source_branch into main, pushed to GitHub, and returned to $original_branch."
+        elif [ "$mode" = "3" ]; then
+            echo "--> Updating $current_branch with latest changes from origin/main..."
+            git fetch origin main >/dev/null 2>&1
+            if git merge origin/main -m "Merge branch 'main' into $current_branch"; then
+                echo "Successfully updated $current_branch with latest main."
+                echo "--> Pushing updated branch to GitHub..."
+                git push origin "$current_branch" 2>/dev/null || true
+            else
+                echo "Merge conflict detected while pulling from main!"
+                echo "Resolve conflicts with 'git status', or run 'git merge --abort' to cancel."
+                return 1
+            fi
+
+        elif [ "$mode" = "4" ]; then
+            echo "--> Preparing to merge $current_branch into main..."
+
+            # Exactly ONE merge message prompt
+            read -rp "Enter merge message (default 'Merge branch $current_branch into main'): " msg
+            msg="${msg:-Merge branch $current_branch into main}"
+
+            # Auto-commit any remaining working changes or active recording logs
+            git add .
+            if ! git diff --cached --quiet; then
+                git commit -m "Finalize $current_branch before merge" --quiet
+                echo "--> Pushed final changes to origin/$current_branch."
+                git push origin "$current_branch" >/dev/null 2>&1 || true
+            fi
+
+            # Automated Stash Safeguard: Stash any trailing keystrokes or background logs
+            local has_stash="false"
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+                git stash push -u -m "temp_sync_recording_stash" >/dev/null 2>&1
+                has_stash="true"
+            fi
+
+            echo "--> Switching to main..."
+            if ! git checkout main 2>/dev/null && ! git checkout -m main 2>/dev/null; then
+                echo "Error: Could not switch to main."
+                [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
+                return 1
+            fi
+
+            echo "--> Pulling latest main from GitHub..."
+            if ! git pull origin main; then
+                echo "Error: Could not pull latest main."
+                git checkout "$current_branch" 2>/dev/null || true
+                [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
+                return 1
+            fi
+
+            echo "--> Merging $current_branch into main..."
+            if git merge "$current_branch" -m "$msg"; then
+                echo "--> Pushing merged main to GitHub..."
+                if git push origin main; then
+                    echo -e "\033[1;32mSuccessfully merged $current_branch into main and published to GitHub!\033[0m"
+
+                    # Restore in-flight recording logs onto main
+                    if [ "$has_stash" = "true" ]; then
+                        git stash pop >/dev/null 2>&1 || true
+                        git add .
+                        if ! git diff --cached --quiet; then
+                            git commit -m "Update session recording" >/dev/null 2>&1 || true
+                            git push origin main >/dev/null 2>&1 || true
+                        fi
+                    fi
+
+                    # Prompt for branch cleanup
+                    echo ""
+                    read -rp "Delete finished branch '$current_branch' from local and GitHub? [Y/n]: " del_choice
+                    del_choice="${del_choice:-Y}"
+                    if [[ "$del_choice" =~ ^[Yy]$ ]]; then
+                        echo "Cleaning up local branch $current_branch..."
+                        git branch -d "$current_branch" 2>/dev/null || git branch -D "$current_branch" 2>/dev/null
+                        echo "Cleaning up remote branch on GitHub..."
+                        git push origin --delete "$current_branch" 2>/dev/null || true
+                        echo "Branch $current_branch has been cleaned up. You are now on main."
+                    else
+                        echo "Branch $current_branch kept. You are now on main."
+                    fi
                 else
-                    echo "Successfully merged $source_branch into main and pushed to GitHub."
+                    echo "Error: Merged locally, but failed to push to GitHub main."
+                    [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
+                    return 1
                 fi
             else
-                echo "Error: Merge succeeded locally, but failed to push main to GitHub."
-                [ "$original_branch" != "main" ] && git checkout "$original_branch"
+                echo "Merge conflict detected while merging $current_branch into main!"
+                echo "Resolve conflicts with 'git status', or run 'git merge --abort' to cancel."
+                git checkout "$current_branch" 2>/dev/null || true
+                [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
                 return 1
             fi
-        else
-            echo "Merge conflict detected while merging $source_branch into main!"
-            echo "Please resolve conflicts with 'git status', or run 'git merge --abort' to cancel."
-            [ "$original_branch" != "main" ] && git checkout "$original_branch"
-            return 1
+
+        elif [ "$mode" = "5" ]; then
+            git add .
+            if ! git diff --cached --quiet; then
+                git commit -m "WIP on $current_branch before switching to main" --quiet
+                git push origin "$current_branch" >/dev/null 2>&1 || true
+            fi
+            local has_stash="false"
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+                git stash push -u -m "temp_sync_switch_stash" >/dev/null 2>&1
+                has_stash="true"
+            fi
+            echo "--> Switching to main..."
+            if git checkout main 2>/dev/null || git checkout -m main 2>/dev/null; then
+                [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
+                echo "Switched to main. Your work on $current_branch is saved."
+            else
+                echo "Error: Could not switch to main."
+                [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
+                return 1
+            fi
+        fi
+
+    else
+        # =========================================================================
+        # MAIN BRANCH WORKFLOW
+        # =========================================================================
+        echo "Main Branch Options:"
+        echo "1) Start a new feature branch (feat <name>)"
+        echo "2) Switch to an existing branch on GitHub"
+        echo "3) Pull latest updates from GitHub main"
+        echo "4) Save and push direct changes on main to GitHub"
+        read -rp "Select [1-4] (default 1): " mode
+        mode="${mode:-1}"
+
+        if [ "$mode" = "1" ]; then
+            read -rp "Enter new task/feature name (e.g. loan-calc): " feat_name
+            if [ -n "$feat_name" ]; then
+                feature "$feat_name"
+            else
+                echo "Task name cannot be empty."
+                return 1
+            fi
+
+        elif [ "$mode" = "2" ]; then
+            _select_branch "" "Select branch to switch to" "main" "false"
+            local target_branch="$SELECTED_BRANCH"
+            if [ -z "$target_branch" ]; then
+                echo "No branch selected."
+                return 1
+            fi
+
+            git add .
+            if ! git diff --cached --quiet; then
+                git commit -m "WIP on main before switching" --quiet
+            fi
+
+            local has_stash="false"
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+                git stash push -u -m "temp_sync_switch_stash" >/dev/null 2>&1
+                has_stash="true"
+            fi
+
+            echo "--> Switching to branch '$target_branch'..."
+            if git checkout "$target_branch" 2>/dev/null; then
+                echo "Switched to local branch '$target_branch'."
+                [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
+            elif git checkout -b "$target_branch" "origin/$target_branch" 2>/dev/null; then
+                echo "Checked out remote branch '$target_branch' locally."
+                [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
+            elif git checkout -m "$target_branch" 2>/dev/null; then
+                echo "Switched to branch '$target_branch'."
+                [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
+            else
+                echo "Error: Could not switch to branch '$target_branch'."
+                [ "$has_stash" = "true" ] && git stash pop >/dev/null 2>&1 || true
+                return 1
+            fi
+        elif [ "$mode" = "3" ]; then
+            echo "--> Pulling latest updates from origin/main..."
+            if git pull origin main; then
+                echo "Successfully pulled latest main."
+            else
+                echo "Error: Pull did not complete cleanly."
+                return 1
+            fi
+
+        elif [ "$mode" = "4" ]; then
+            read -rp "Enter commit message for main (default 'update main'): " msg
+            msg="${msg:-update main}"
+
+            git add .
+            if ! git diff --cached --quiet; then
+                git commit -m "$msg"
+            else
+                echo "No local changes to commit."
+            fi
+
+            echo "--> Pushing to origin/main..."
+            if git push origin main; then
+                echo "Successfully pushed to origin/main."
+            else
+                echo "Error: Failed to push to origin/main."
+                return 1
+            fi
         fi
     fi
 }
@@ -439,7 +724,12 @@ sync() {
 function alp() {
     if [ -f "$HOME/alp-env/bin/activate" ]; then
         source "$HOME/alp-env/bin/activate"
-        echo "ALP virtual environment activated."
+        if [ -d "$REPO_DIR" ]; then
+            cd "$REPO_DIR" || true
+        elif [ -d "$HOME/alp-env/nomvula_agri_finance" ]; then
+            cd "$HOME/alp-env/nomvula_agri_finance" || true
+        fi
+        echo "ALP virtual environment activated in $PWD."
     else
         echo "Error: Virtual environment not found at $HOME/alp-env/bin/activate"
         return 1
@@ -448,9 +738,27 @@ function alp() {
 alias activate-alp='alp'
 
 # 6. Workspace Synchronization (Windows Documents <-> Linux WSL)
+_get_win_dest() {
+    local win_prof=""
+    if command -v cmd.exe >/dev/null 2>&1; then
+        local raw
+        raw=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d "\r\n")
+        if [ -n "$raw" ]; then
+            win_prof=$(wslpath -u "$raw" 2>/dev/null)
+        fi
+    fi
+    if [ -z "$win_prof" ] || [ ! -d "$win_prof" ]; then
+        if [ -d "/mnt/c/Users/$USER" ]; then
+            win_prof="/mnt/c/Users/$USER"
+        fi
+    fi
+    echo "$win_prof/Documents/nomvula_agri_finance"
+}
+
 move() {
     local src_repo="$REPO_DIR"
-    local win_dest="/mnt/c/Users/michael/Documents/nomvula_agri_finance"
+    local win_dest
+    win_dest="$(_get_win_dest)"
 
     mkdir -p "$win_dest"
     echo "Syncing repository from Linux to Windows Documents..."
@@ -462,7 +770,8 @@ move() {
 }
 
 update() {
-    local win_src="/mnt/c/Users/michael/Documents/nomvula_agri_finance"
+    local win_src
+    win_src="$(_get_win_dest)"
     local dest_repo="$REPO_DIR"
 
     if [ ! -d "$win_src" ]; then
@@ -477,7 +786,6 @@ update() {
     fi
     echo "Done. Linux workspace updated with Windows edits."
 }
-
 alias move-nomvula='move'
 alias update-nomvula='update'
 
